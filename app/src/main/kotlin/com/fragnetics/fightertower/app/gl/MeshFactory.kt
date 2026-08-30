@@ -5,14 +5,14 @@ import kotlin.math.sqrt
 /**
  * Builds small unit meshes (roughly 1 world-unit across) with per-face brightness baked into the
  * color channel for a cheap pseudo-shaded look. Actual hue is supplied per-instance via the
- * uColorTint uniform at draw time, so these three meshes are built once and reused for every
- * tower tier and enemy on screen. Back-face culling is intentionally left off (see GameRenderer)
+ * uColorTint uniform at draw time, so these meshes are built once and reused for the ground,
+ * base, and projectile bolts (towers and enemies use loaded OBJ models instead — see
+ * [ObjLoader] and [TexturedMesh]). Back-face culling is intentionally left off (see GameRenderer)
  * so any face-winding slip just costs a slightly duller face rather than a visible hole.
  */
 object MeshFactory {
 
     fun unitCube(): Mesh = Mesh(cubeVertexData())
-    fun unitPyramid(): Mesh = Mesh(pyramidVertexData())
     fun unitPlane(): Mesh = Mesh(planeVertexData())
 
     private fun cubeVertexData(): FloatArray {
@@ -29,24 +29,6 @@ object MeshFactory {
         quad(nnn, pnn, pnp, nnp, 0.50f, out) // bottom (-Y)
         quad(pnp, pnn, ppn, ppp, 0.80f, out) // right  (+X)
         quad(nnn, nnp, npp, npn, 0.75f, out) // left   (-X)
-        return out.toFloatArray()
-    }
-
-    private fun pyramidVertexData(): FloatArray {
-        val half = 0.5f
-        val apex = floatArrayOf(0f, 0.5f, 0f)
-        val bottom = -0.5f
-        val a = floatArrayOf(-half, bottom, -half)
-        val b = floatArrayOf(half, bottom, -half)
-        val c = floatArrayOf(half, bottom, half)
-        val d = floatArrayOf(-half, bottom, half)
-
-        val out = mutableListOf<Float>()
-        tri(a, b, apex, 0.85f, out)
-        tri(b, c, apex, 0.70f, out)
-        tri(c, d, apex, 0.90f, out)
-        tri(d, a, apex, 0.60f, out)
-        quad(d, c, b, a, 0.50f, out) // base, facing down
         return out.toFloatArray()
     }
 

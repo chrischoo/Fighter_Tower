@@ -1,11 +1,13 @@
 package com.fragnetics.fightertower.core
 
+import kotlin.math.sqrt
+
 /**
  * Ties the board, waves, combat, and player progression into a single deterministic tick.
  * Owns no rendering/Android concerns so it can be driven and unit-tested headlessly.
  */
 class GameEngine(
-    val board: GridBoard = GridBoard(columns = 4, rows = 3),
+    val board: GridBoard = GridBoard(columns = 4, rows = 5),
     val player: PlayerProgress = PlayerProgress()
 ) {
     val baseMaxHealth: Double = 100.0
@@ -112,9 +114,15 @@ class GameEngine(
             tower.cooldownRemaining = (tower.cooldownRemaining - dt).coerceAtLeast(0.0)
             if (tower.cooldownRemaining > 0.0) continue
 
+            val towerX = BoardGeometry.cellX(tower.position)
+            val towerZ = BoardGeometry.cellZ(tower.position)
             val target = candidates
-                .filter { !it.isDead && it.distanceRemaining <= tower.tier.range }
-                .minByOrNull { it.distanceRemaining }
+                .asSequence()
+                .filter { !it.isDead }
+                .map { it to distanceToTower(towerX, towerZ, it) }
+                .filter { it.second <= tower.tier.range }
+                .minByOrNull { it.second }
+                ?.first
                 ?: continue
 
             target.health = (target.health - tower.tier.damage).coerceAtLeast(0.0)
@@ -131,6 +139,13 @@ class GameEngine(
                 }
             }
         }
+    }
+
+    /** Straight-line distance from a tower's grid cell to an enemy's current spot on the lane. */
+    private fun distanceToTower(towerX: Double, towerZ: Double, enemy: Enemy): Double {
+        val dx = towerX - BoardGeometry.LANE_X
+        val dz = towerZ - BoardGeometry.laneZ(enemy.progress)
+        return sqrt(dx * dx + dz * dz)
     }
 
     private fun checkWaveCompletion(dt: Double) {

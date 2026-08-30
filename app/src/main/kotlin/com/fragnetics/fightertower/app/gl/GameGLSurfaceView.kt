@@ -7,7 +7,7 @@ import com.fragnetics.fightertower.app.game.GameSession
 import com.fragnetics.fightertower.app.input.TouchController
 
 class GameGLSurfaceView(context: Context, session: GameSession) : GLSurfaceView(context) {
-    private val renderer = GameRenderer(session)
+    private val renderer = GameRenderer(session, context.assets)
     private val touchController = TouchController(session, renderer)
 
     init {

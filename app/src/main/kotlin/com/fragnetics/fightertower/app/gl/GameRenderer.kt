@@ -1,5 +1,6 @@
 package com.fragnetics.fightertower.app.gl
 
+import android.content.res.AssetManager
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
@@ -13,16 +14,38 @@ import javax.microedition.khronos.opengles.GL10
 
 private const val BOLT_LIFETIME_SECONDS = 0.25f
 
+/** World-space height (before per-tower scale) of each stackable tower body piece. */
+private val BODY_SEGMENT_HEIGHTS = floatArrayOf(0.6f, 0.6f, 0.5f)
+
+/** World-space height (before scale) of each castle piece, stacked base -> mid -> mid-windows -> roof. */
+private val CASTLE_SEGMENT_HEIGHTS = floatArrayOf(1.01f, 1.01f, 1.01f, 1.35f)
+private const val CASTLE_SCALE = 1.3f
+
 /**
  * Renders the board, lane, towers and enemies in true 3D (OpenGL ES 2.0), and drives the game
- * simulation forward once per frame via [GameSession.update].
+ * simulation forward once per frame via [GameSession.update]. The ground, base building, and
+ * projectile bolts are cheap procedural meshes (flat-shaded, see [GlProgram]); towers and enemies
+ * are OBJ models loaded from assets and drawn with a separate textured program (see
+ * [TexturedGlProgram]).
  */
-class GameRenderer(private val session: GameSession) : GLSurfaceView.Renderer {
+class GameRenderer(
+    private val session: GameSession,
+    private val assets: AssetManager
+) : GLSurfaceView.Renderer {
 
     private lateinit var program: GlProgram
     private lateinit var cubeMesh: Mesh
-    private lateinit var pyramidMesh: Mesh
     private lateinit var planeMesh: Mesh
+
+    private lateinit var texturedProgram: TexturedGlProgram
+    private var modelTextureId: Int = 0
+    private lateinit var bodyMeshes: List<TexturedMesh> // index 0 = bottom, 1 = middle, 2 = top
+    private lateinit var weaponMeshes: List<TexturedMesh> // turret, cannon, ballista, catapult
+    private lateinit var enemyMesh: TexturedMesh
+
+    // The base is a stacked castle keep, textured from a separate atlas than the tower/enemy models.
+    private var castleTextureId: Int = 0
+    private lateinit var castleMeshes: List<TexturedMesh> // base, mid, mid-windows, roof, stacked bottom-up
 
     private val projectionMatrix = FloatArray(16)
     private val viewMatrix = FloatArray(16)
@@ -43,17 +66,41 @@ class GameRenderer(private val session: GameSession) : GLSurfaceView.Renderer {
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         GLES20.glClearColor(0.53f, 0.72f, 0.86f, 1f)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
+
         program = GlProgram()
         cubeMesh = MeshFactory.unitCube()
-        pyramidMesh = MeshFactory.unitPyramid()
         planeMesh = MeshFactory.unitPlane()
+
+        texturedProgram = TexturedGlProgram()
+        modelTextureId = TextureLoader.loadFromAssets(assets, "textures/colormap.png")
+        bodyMeshes = listOf(
+            TexturedMesh(ObjLoader.load(assets, "models/tower-round-bottom-a.obj")),
+            TexturedMesh(ObjLoader.load(assets, "models/tower-round-middle-a.obj")),
+            TexturedMesh(ObjLoader.load(assets, "models/tower-round-top-a.obj")),
+        )
+        weaponMeshes = listOf(
+            TexturedMesh(ObjLoader.load(assets, "models/weapon-turret.obj")),
+            TexturedMesh(ObjLoader.load(assets, "models/weapon-cannon.obj")),
+            TexturedMesh(ObjLoader.load(assets, "models/weapon-ballista.obj")),
+            TexturedMesh(ObjLoader.load(assets, "models/weapon-catapult.obj")),
+        )
+        enemyMesh = TexturedMesh(ObjLoader.load(assets, "models/enemy-ufo-a.obj"))
+
+        castleTextureId = TextureLoader.loadFromAssets(assets, "textures/castle-colormap.png")
+        castleMeshes = listOf(
+            TexturedMesh(ObjLoader.load(assets, "models/castle-base.obj")),
+            TexturedMesh(ObjLoader.load(assets, "models/castle-mid.obj")),
+            TexturedMesh(ObjLoader.load(assets, "models/castle-mid-windows.obj")),
+            TexturedMesh(ObjLoader.load(assets, "models/castle-roof.obj")),
+        )
+
         lastFrameNanos = System.nanoTime()
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
         GLES20.glViewport(0, 0, width, height)
         val aspect = width.toFloat() / height.toFloat().coerceAtLeast(1f)
-        Matrix.perspectiveM(projectionMatrix, 0, 55f, aspect, 1f, 60f)
+        Matrix.perspectiveM(projectionMatrix, 0, 60f, aspect, 1f, 60f)
     }
 
     override fun onDrawFrame(gl: GL10?) {
@@ -66,20 +113,30 @@ class GameRenderer(private val session: GameSession) : GLSurfaceView.Renderer {
         spawnBoltsForEvents(events, enemies)
 
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
-        program.use()
 
-        Matrix.setLookAtM(viewMatrix, 0, -1f, 16f, 14f, -1f, 0f, 5f, 0f, 1f, 0f)
+        Matrix.setLookAtM(viewMatrix, 0, 0f, 18f, 16f, 0f, 0f, 5f, 0f, 1f, 0f)
         Matrix.multiplyMM(viewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0)
         synchronized(exposedLock) {
             System.arraycopy(viewProjectionMatrix, 0, exposedViewProjection, 0, 16)
         }
 
+        program.use()
         GLES20.glUniform3f(program.lightDirHandle, 0.4f, 0.9f, 0.5f)
-
         drawGround()
+
+        texturedProgram.use()
+        GLES20.glUniform3f(texturedProgram.lightDirHandle, 0.4f, 0.9f, 0.5f)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glUniform1i(texturedProgram.textureHandle, 0)
+
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, castleTextureId)
         drawBase()
+
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, modelTextureId)
         drawTowers()
         drawEnemies(enemies)
+
+        program.use()
         drawBolts(dt.toFloat())
     }
 
@@ -97,7 +154,7 @@ class GameRenderer(private val session: GameSession) : GLSurfaceView.Renderer {
     }
 
     private fun enemyWorldPos(enemy: Enemy): FloatArray =
-        floatArrayOf(WorldLayout.LANE_X, 0.45f, WorldLayout.laneWorldZ(enemy.progress))
+        floatArrayOf(WorldLayout.LANE_X, 0.3f, WorldLayout.laneWorldZ(enemy.progress))
 
     private fun drawInstance(
         mesh: Mesh, x: Float, y: Float, z: Float,
@@ -114,12 +171,27 @@ class GameRenderer(private val session: GameSession) : GLSurfaceView.Renderer {
         mesh.draw(program)
     }
 
+    private fun drawTexturedInstance(
+        mesh: TexturedMesh, x: Float, y: Float, z: Float,
+        sx: Float, sy: Float, sz: Float,
+        r: Float, g: Float, b: Float
+    ) {
+        Matrix.setIdentityM(modelMatrix, 0)
+        Matrix.translateM(modelMatrix, 0, x, y, z)
+        Matrix.scaleM(modelMatrix, 0, sx, sy, sz)
+        Matrix.multiplyMM(mvpMatrix, 0, viewProjectionMatrix, 0, modelMatrix, 0)
+        GLES20.glUniformMatrix4fv(texturedProgram.mvpMatrixHandle, 1, false, mvpMatrix, 0)
+        GLES20.glUniformMatrix4fv(texturedProgram.modelMatrixHandle, 1, false, modelMatrix, 0)
+        GLES20.glUniform3f(texturedProgram.colorTintHandle, r, g, b)
+        mesh.draw(texturedProgram)
+    }
+
     private fun drawGround() {
         val (columns, rows) = session.boardDimensions()
         for (row in 0 until rows) {
             for (col in 0 until columns) {
                 val center = WorldLayout.cellCenter(GridPos(col, row))
-                drawInstance(planeMesh, center[0], 0f, center[2], 1.4f, 1f, 1.4f, 0.29f, 0.36f, 0.24f)
+                drawInstance(planeMesh, center[0], 0f, center[2], 1.2f, 1f, 1.2f, 0.29f, 0.36f, 0.24f)
             }
         }
         val laneLength = WorldLayout.LANE_SPAWN_Z - WorldLayout.LANE_BASE_Z
@@ -132,21 +204,29 @@ class GameRenderer(private val session: GameSession) : GLSurfaceView.Renderer {
     }
 
     private fun drawBase() {
-        drawInstance(
-            cubeMesh, WorldLayout.LANE_X, 1f, WorldLayout.LANE_BASE_Z - 1.2f,
-            2.4f, 2f, 2.4f,
-            0.25f, 0.45f, 0.85f
-        )
+        val x = WorldLayout.LANE_X
+        val z = WorldLayout.LANE_BASE_Z - 1.2f
+        var y = 0f
+        for ((segment, mesh) in castleMeshes.withIndex()) {
+            drawTexturedInstance(mesh, x, y, z, CASTLE_SCALE, CASTLE_SCALE, CASTLE_SCALE, 1f, 1f, 1f)
+            y += CASTLE_SEGMENT_HEIGHTS[segment] * CASTLE_SCALE
+        }
     }
 
     private fun drawTowers() {
         for (tower in session.snapshotTowers()) {
             val center = WorldLayout.cellCenter(tower.position)
-            val tierIndex = tower.tier.ordinal
-            val height = 0.6f + tierIndex * 0.22f
-            val width = 0.55f + tierIndex * 0.05f
+            val visual = TowerVisuals.forTier(tower.tier)
             val color = towerColor(tower.tier)
-            drawInstance(cubeMesh, center[0], height / 2f, center[2], width, height, width, color[0], color[1], color[2])
+            val scale = 0.85f + tower.tier.ordinal * 0.03f
+
+            var y = 0f
+            for (segment in 0 until visual.bodySegments) {
+                drawTexturedInstance(bodyMeshes[segment], center[0], y, center[2], scale, scale, scale, color[0], color[1], color[2])
+                y += BODY_SEGMENT_HEIGHTS[segment] * scale
+            }
+            val weaponMesh = weaponMeshes[visual.weaponIndex]
+            drawTexturedInstance(weaponMesh, center[0], y, center[2], scale, scale, scale, color[0], color[1], color[2])
         }
     }
 
@@ -154,7 +234,7 @@ class GameRenderer(private val session: GameSession) : GLSurfaceView.Renderer {
         for (enemy in enemies) {
             val pos = enemyWorldPos(enemy)
             val healthFrac = (enemy.health / enemy.maxHealth).toFloat().coerceIn(0f, 1f)
-            drawInstance(pyramidMesh, pos[0], 0.4f, pos[2], 0.7f, 0.8f, 0.7f, 0.85f, 0.15f + healthFrac * 0.2f, 0.15f)
+            drawTexturedInstance(enemyMesh, pos[0], pos[1], pos[2], 0.9f, 0.9f, 0.9f, 0.85f, 0.15f + healthFrac * 0.2f, 0.15f)
         }
     }
 
