@@ -11,7 +11,7 @@ data class EnemyBlueprint(
     val xpReward: Int
 )
 
-data class EnemySpawn(val delaySeconds: Double, val blueprint: EnemyBlueprint)
+data class EnemySpawn(val delaySeconds: Double, val laneIndex: Int, val blueprint: EnemyBlueprint)
 
 data class Wave(val number: Int, val spawns: List<EnemySpawn>)
 
@@ -56,7 +56,11 @@ object WaveGenerator {
 
         val spawns = mutableListOf<EnemySpawn>()
         for (i in 0 until enemyCount) {
-            spawns += EnemySpawn(delaySeconds = i * SPAWN_INTERVAL, blueprint = blueprint)
+            spawns += EnemySpawn(
+                delaySeconds = i * SPAWN_INTERVAL,
+                laneIndex = i % LaneLayout.LANE_COUNT,
+                blueprint = blueprint
+            )
         }
         if (waveNumber % BOSS_WAVE_INTERVAL == 0) {
             val boss = blueprint.copy(
@@ -66,7 +70,11 @@ object WaveGenerator {
                 goldReward = blueprint.goldReward * 5,
                 xpReward = blueprint.xpReward * 4
             )
-            spawns += EnemySpawn(delaySeconds = enemyCount * SPAWN_INTERVAL + 1.0, blueprint = boss)
+            spawns += EnemySpawn(
+                delaySeconds = enemyCount * SPAWN_INTERVAL + 1.0,
+                laneIndex = enemyCount % LaneLayout.LANE_COUNT,
+                blueprint = boss
+            )
         }
         return Wave(waveNumber, spawns)
     }

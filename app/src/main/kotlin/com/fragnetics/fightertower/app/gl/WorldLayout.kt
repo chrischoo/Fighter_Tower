@@ -1,26 +1,36 @@
 package com.fragnetics.fightertower.app.gl
 
-import com.fragnetics.fightertower.core.BoardGeometry
+import com.fragnetics.fightertower.core.DiamondDrop
+import com.fragnetics.fightertower.core.Enemy
 import com.fragnetics.fightertower.core.GridPos
+import com.fragnetics.fightertower.core.LaneLayout
+import com.fragnetics.fightertower.core.Vec2
 
 /**
- * Maps game-core grid cells and lane progress onto 3D world-space coordinates (as Float, for
- * OpenGL). Mirrors [BoardGeometry] so the drawn board always matches the geometry gameplay uses
- * for tower range checks. Shared by both the renderer (drawing) and the touch controller
- * (screen -> world -> grid cell).
+ * Maps game-core's logical lane/spot positions onto OpenGL world-space coordinates. All X/Z
+ * values come straight from [LaneLayout] — the same positions GameEngine uses for combat range
+ * checks — so what's drawn always matches what's actually in range; this file only adds the
+ * render-specific Y (height) and hands touch input the same lookup for hit-testing.
  */
 object WorldLayout {
-    val CELL_SPACING: Float = BoardGeometry.CELL_SPACING.toFloat()
-    val GRID_ORIGIN_X: Float = BoardGeometry.GRID_ORIGIN_X.toFloat()
-    val GRID_ORIGIN_Z: Float = BoardGeometry.GRID_ORIGIN_Z.toFloat()
 
-    val LANE_X: Float = BoardGeometry.LANE_X.toFloat()
-    val LANE_SPAWN_Z: Float = BoardGeometry.LANE_SPAWN_Z.toFloat()
-    val LANE_BASE_Z: Float = BoardGeometry.LANE_BASE_Z.toFloat()
+    fun towerWorld(pos: GridPos): FloatArray = worldFrom(LaneLayout.spotPosition(pos), y = 0f)
 
-    fun cellCenter(pos: GridPos): FloatArray =
-        floatArrayOf(BoardGeometry.cellX(pos).toFloat(), 0f, BoardGeometry.cellZ(pos).toFloat())
+    fun enemyWorld(enemy: Enemy): FloatArray = worldFrom(enemy.position(), y = 0.3f)
 
-    /** progress: 0 = spawn point (far away), 1 = reached the base. */
-    fun laneWorldZ(progress: Double): Float = BoardGeometry.laneZ(progress).toFloat()
+    fun diamondWorld(diamond: DiamondDrop): FloatArray = worldFrom(diamond.position(), y = 0f)
+
+    fun spawnWorld(lane: Int): FloatArray = worldFrom(LaneLayout.spawnPosition(lane), y = 0f)
+
+    fun baseWorld(): FloatArray = worldFrom(LaneLayout.basePosition, y = 0f)
+
+    fun allSpots(laneCount: Int, slotsPerLane: Int): List<Pair<GridPos, Vec2>> =
+        (0 until laneCount).flatMap { lane ->
+            (0 until slotsPerLane).map { slot ->
+                val pos = GridPos(lane, slot)
+                pos to LaneLayout.spotPosition(pos)
+            }
+        }
+
+    private fun worldFrom(v: Vec2, y: Float): FloatArray = floatArrayOf(v.x.toFloat(), y, v.z.toFloat())
 }

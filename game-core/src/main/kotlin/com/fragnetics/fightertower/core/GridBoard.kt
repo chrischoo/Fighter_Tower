@@ -1,6 +1,7 @@
 package com.fragnetics.fightertower.core
 
-data class GridPos(val col: Int, val row: Int)
+/** A tower placement spot: the [slot]-th spot along lane [lane] (see [LaneLayout]). */
+data class GridPos(val lane: Int, val slot: Int)
 
 data class Tower(
     val id: Long,
@@ -10,18 +11,19 @@ data class Tower(
 )
 
 /**
- * The player's merge yard. Every tower on the board, regardless of cell, can fire at any
- * enemy on the lane that is within its tier's range (the grid is inventory/merge space,
- * not a per-lane placement grid).
+ * The player's merge yard: a fixed set of spots spread across [laneCount] lanes, [slotsPerLane]
+ * spots each. Any tower can be dragged onto any other spot regardless of lane to relocate or
+ * merge it — the lane a spot belongs to only affects its physical position (see [LaneLayout]),
+ * not what it can merge with.
  */
-class GridBoard(val columns: Int, val rows: Int) {
-    private val cells: Array<Tower?> = arrayOfNulls(columns * rows)
+class GridBoard(val laneCount: Int, val slotsPerLane: Int) {
+    private val cells: Array<Tower?> = arrayOfNulls(laneCount * slotsPerLane)
     private var nextTowerId = 1L
 
     val towers: List<Tower> get() = cells.filterNotNull()
 
-    private fun index(pos: GridPos) = pos.row * columns + pos.col
-    private fun inBounds(pos: GridPos) = pos.col in 0 until columns && pos.row in 0 until rows
+    private fun index(pos: GridPos) = pos.lane * slotsPerLane + pos.slot
+    private fun inBounds(pos: GridPos) = pos.lane in 0 until laneCount && pos.slot in 0 until slotsPerLane
 
     fun towerAt(pos: GridPos): Tower? {
         if (!inBounds(pos)) return null
@@ -29,9 +31,9 @@ class GridBoard(val columns: Int, val rows: Int) {
     }
 
     fun findEmptyCell(): GridPos? {
-        for (row in 0 until rows) {
-            for (col in 0 until columns) {
-                val pos = GridPos(col, row)
+        for (lane in 0 until laneCount) {
+            for (slot in 0 until slotsPerLane) {
+                val pos = GridPos(lane, slot)
                 if (towerAt(pos) == null) return pos
             }
         }
@@ -52,7 +54,7 @@ class GridBoard(val columns: Int, val rows: Int) {
         data object Invalid : MoveResult()
     }
 
-    /** Dragging onto an empty cell relocates the tower; dragging onto a same-tier tower merges. */
+    /** Dragging onto an empty spot relocates the tower; dragging onto a same-tier tower merges, regardless of lane. */
     fun moveOrMerge(from: GridPos, to: GridPos): MoveResult {
         if (!inBounds(from) || !inBounds(to) || from == to) return MoveResult.Invalid
         val source = towerAt(from) ?: return MoveResult.Invalid
