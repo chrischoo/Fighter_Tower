@@ -55,7 +55,7 @@ class GameSession(
         return true
     }
 
-    fun boardDimensions(): Pair<Int, Int> = synchronized(lock) { engine.board.columns to engine.board.rows }
+    fun boardDimensions(): Pair<Int, Int> = synchronized(lock) { engine.board.laneCount to engine.board.slotsPerLane }
 
     fun snapshot(): GameSnapshot = synchronized(lock) {
         GameSnapshot(

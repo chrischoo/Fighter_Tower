@@ -45,7 +45,7 @@ class GameEngineTest {
     fun `a strong tower clears early waves, levels up the player, and holds the base`() {
         // Difficulty compounds with both wave number and player level (by design), so a single
         // tower is only expected to comfortably hold for the early game, not indefinitely.
-        val engine = GameEngine(board = GridBoard(columns = 2, rows = 1))
+        val engine = GameEngine(board = GridBoard(laneCount = 2, slotsPerLane = 1))
         engine.board.placeNewTower(tier = TowerTier.TITAN, at = GridPos(0, 0))
 
         val allEvents = mutableListOf<GameEvent>()
@@ -67,7 +67,7 @@ class GameEngineTest {
 
     @Test
     fun `leveling up mid-game makes the next wave tougher than it would otherwise have been`() {
-        val engineNoKills = GameEngine(board = GridBoard(columns = 1, rows = 1))
+        val engineNoKills = GameEngine(board = GridBoard(laneCount = 1, slotsPerLane = 1))
         val waveAtLevelOne = WaveGenerator.generate(engineNoKills.waveNumber + 1, engineNoKills.player.level)
 
         val leveledPlayer = PlayerProgress(level = 1, xp = 0, gold = 0)
@@ -82,7 +82,7 @@ class GameEngineTest {
 
     @Test
     fun `with no defenses, waves eventually overwhelm the base and end the game`() {
-        val engine = GameEngine(board = GridBoard(columns = 1, rows = 1))
+        val engine = GameEngine(board = GridBoard(laneCount = 1, slotsPerLane = 1))
 
         val allEvents = mutableListOf<GameEvent>()
         var simulatedSeconds = 0.0

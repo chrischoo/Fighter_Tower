@@ -1,13 +1,11 @@
 package com.fragnetics.fightertower.core
 
-import kotlin.math.sqrt
-
 /**
  * Ties the board, waves, combat, and player progression into a single deterministic tick.
  * Owns no rendering/Android concerns so it can be driven and unit-tested headlessly.
  */
 class GameEngine(
-    val board: GridBoard = GridBoard(columns = 4, rows = 5),
+    val board: GridBoard = GridBoard(laneCount = LaneLayout.LANE_COUNT, slotsPerLane = LaneLayout.SLOTS_PER_LANE),
     val player: PlayerProgress = PlayerProgress(),
     val permanentProgress: PermanentProgress = PermanentProgress()
 ) {
@@ -89,6 +87,7 @@ class GameEngine(
                 val enemy = Enemy(
                     id = nextEnemyId++,
                     name = spawn.blueprint.name,
+                    laneIndex = spawn.laneIndex,
                     maxHealth = spawn.blueprint.health,
                     health = spawn.blueprint.health,
                     speed = spawn.blueprint.speed,
@@ -127,15 +126,7 @@ class GameEngine(
             tower.cooldownRemaining = (tower.cooldownRemaining - dt).coerceAtLeast(0.0)
             if (tower.cooldownRemaining > 0.0) continue
 
-            val towerX = BoardGeometry.cellX(tower.position)
-            val towerZ = BoardGeometry.cellZ(tower.position)
-            val target = candidates
-                .asSequence()
-                .filter { !it.isDead }
-                .map { it to distanceToTower(towerX, towerZ, it) }
-                .filter { it.second <= tower.tier.range }
-                .minByOrNull { it.second }
-                ?.first
+            val target = nearestEnemyInRange(LaneLayout.spotPosition(tower.position), tower.tier.range, candidates)
                 ?: continue
 
             val damage = tower.tier.damage * permanentProgress.bulletDamageMultiplier
@@ -152,7 +143,12 @@ class GameEngine(
                     eventsBuffer += GameEvent.LevelUp(player.level)
                 }
                 val diamondAmount = 1 + target.xpReward / 20
-                val drop = DiamondDrop(id = nextDiamondId++, progress = target.progress, amount = diamondAmount)
+                val drop = DiamondDrop(
+                    id = nextDiamondId++,
+                    laneIndex = target.laneIndex,
+                    progress = target.progress,
+                    amount = diamondAmount
+                )
                 diamondsById[drop.id] = drop
                 eventsBuffer += GameEvent.DiamondDropped(drop.id, drop.amount)
             }
@@ -171,11 +167,18 @@ class GameEngine(
         }
     }
 
-    /** Straight-line distance from a tower's grid cell to an enemy's current spot on the lane. */
-    private fun distanceToTower(towerX: Double, towerZ: Double, enemy: Enemy): Double {
-        val dx = towerX - BoardGeometry.LANE_X
-        val dz = towerZ - BoardGeometry.laneZ(enemy.progress)
-        return sqrt(dx * dx + dz * dz)
+    private fun nearestEnemyInRange(towerPos: Vec2, range: Double, enemies: Collection<Enemy>): Enemy? {
+        var best: Enemy? = null
+        var bestDistance = Double.MAX_VALUE
+        for (enemy in enemies) {
+            if (enemy.isDead) continue
+            val distance = towerPos.distanceTo(enemy.position())
+            if (distance <= range && distance < bestDistance) {
+                best = enemy
+                bestDistance = distance
+            }
+        }
+        return best
     }
 
     private fun checkWaveCompletion(dt: Double) {

@@ -8,10 +8,14 @@ package com.fragnetics.fightertower.core
  */
 data class DiamondDrop(
     val id: Long,
+    val laneIndex: Int,
     val progress: Double,
     val amount: Int,
     var timeRemaining: Double = LIFETIME_SECONDS
 ) {
+    /** Where the drop sits, so it renders and gets tapped in the same spot the enemy died. */
+    fun position(): Vec2 = LaneLayout.positionOnLane(laneIndex, progress)
+
     companion object {
         const val LIFETIME_SECONDS = 10.0
     }

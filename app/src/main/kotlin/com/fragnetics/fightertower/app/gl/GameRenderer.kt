@@ -8,8 +8,9 @@ import com.fragnetics.fightertower.app.game.GameSession
 import com.fragnetics.fightertower.core.DiamondDrop
 import com.fragnetics.fightertower.core.Enemy
 import com.fragnetics.fightertower.core.GameEvent
-import com.fragnetics.fightertower.core.GridPos
+import com.fragnetics.fightertower.core.LaneLayout
 import com.fragnetics.fightertower.core.TowerTier
+import kotlin.math.atan2
 import kotlin.math.sin
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
@@ -24,11 +25,13 @@ private val CASTLE_SEGMENT_HEIGHTS = floatArrayOf(1.01f, 1.01f, 1.01f, 1.35f)
 private const val CASTLE_SCALE = 1.3f
 
 /**
- * Renders the board, lane, towers and enemies in true 3D (OpenGL ES 2.0), and drives the game
- * simulation forward once per frame via [GameSession.update]. The ground, base building, and
- * projectile bolts are cheap procedural meshes (flat-shaded, see [GlProgram]); towers and enemies
- * are OBJ models loaded from assets and drawn with a separate textured program (see
- * [TexturedGlProgram]).
+ * Renders the board in true 3D (OpenGL ES 2.0): a central base with three lanes fanning out
+ * around it, tower spots lining each lane, and enemies marching in. Drives the game simulation
+ * forward once per frame via [GameSession.update]. The ground, base building, and projectile
+ * bolts are cheap procedural meshes (flat-shaded, see [GlProgram]); towers and enemies are OBJ
+ * models loaded from assets and drawn with a separate textured program (see [TexturedGlProgram]).
+ * All X/Z positions come from [LaneLayout] via [WorldLayout], the same source GameEngine uses for
+ * combat range, so what's drawn always matches what's actually in range.
  */
 class GameRenderer(
     private val session: GameSession,
@@ -120,7 +123,9 @@ class GameRenderer(
 
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
 
-        Matrix.setLookAtM(viewMatrix, 0, 0f, 18f, 16f, 0f, 0f, 5f, 0f, 1f, 0f)
+        // The base sits at the world origin and is the look-at target, so it renders dead
+        // center on screen with the three lanes fanning out into view around it.
+        Matrix.setLookAtM(viewMatrix, 0, 0f, 18f, -6f, 0f, 0f, 0f, 0f, 1f, 0f)
         Matrix.multiplyMM(viewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0)
         synchronized(exposedLock) {
             System.arraycopy(viewProjectionMatrix, 0, exposedViewProjection, 0, 16)
@@ -128,7 +133,8 @@ class GameRenderer(
 
         program.use()
         GLES20.glUniform3f(program.lightDirHandle, 0.4f, 0.9f, 0.5f)
-        drawGround()
+        drawLanes()
+        drawSpots()
 
         texturedProgram.use()
         GLES20.glUniform3f(texturedProgram.lightDirHandle, 0.4f, 0.9f, 0.5f)
@@ -154,22 +160,23 @@ class GameRenderer(
         for (event in events) {
             if (event !is GameEvent.TowerAttacked) continue
             val enemy = enemies.firstOrNull { it.id == event.enemyId } ?: continue
-            val towerWorld = WorldLayout.cellCenter(event.towerPos)
-            val enemyWorld = enemyWorldPos(enemy)
-            bolts += Bolt(towerWorld[0], 0.9f, towerWorld[2], enemyWorld[0], 0.5f, enemyWorld[2])
+            val towerWorld = WorldLayout.towerWorld(event.towerPos)
+            val enemyWorld = WorldLayout.enemyWorld(enemy)
+            bolts += Bolt(towerWorld[0], 0.9f, towerWorld[2], enemyWorld[0], enemyWorld[1] + 0.2f, enemyWorld[2])
         }
     }
-
-    private fun enemyWorldPos(enemy: Enemy): FloatArray =
-        floatArrayOf(WorldLayout.LANE_X, 0.3f, WorldLayout.laneWorldZ(enemy.progress))
 
     private fun drawInstance(
         mesh: Mesh, x: Float, y: Float, z: Float,
         sx: Float, sy: Float, sz: Float,
-        r: Float, g: Float, b: Float
+        r: Float, g: Float, b: Float,
+        rotationYDegrees: Float = 0f
     ) {
         Matrix.setIdentityM(modelMatrix, 0)
         Matrix.translateM(modelMatrix, 0, x, y, z)
+        if (rotationYDegrees != 0f) {
+            Matrix.rotateM(modelMatrix, 0, rotationYDegrees, 0f, 1f, 0f)
+        }
         Matrix.scaleM(modelMatrix, 0, sx, sy, sz)
         Matrix.multiplyMM(mvpMatrix, 0, viewProjectionMatrix, 0, modelMatrix, 0)
         GLES20.glUniformMatrix4fv(program.mvpMatrixHandle, 1, false, mvpMatrix, 0)
@@ -193,36 +200,44 @@ class GameRenderer(
         mesh.draw(texturedProgram)
     }
 
-    private fun drawGround() {
-        val (columns, rows) = session.boardDimensions()
-        for (row in 0 until rows) {
-            for (col in 0 until columns) {
-                val center = WorldLayout.cellCenter(GridPos(col, row))
-                drawInstance(planeMesh, center[0], 0f, center[2], 1.2f, 1f, 1.2f, 0.29f, 0.36f, 0.24f)
-            }
+    private fun drawLanes() {
+        for (lane in 0 until LaneLayout.LANE_COUNT) {
+            val spawn = WorldLayout.spawnWorld(lane)
+            val midX = spawn[0] / 2f
+            val midZ = spawn[2] / 2f
+            // The lane's world direction is (sin angle, cos angle) by construction (LaneLayout),
+            // so recovering the angle from atan2(x, z) lines the rotated quad's local +Z axis up
+            // with it exactly, connecting the base to the spawn point.
+            val angleDegrees = Math.toDegrees(atan2(spawn[0].toDouble(), spawn[2].toDouble())).toFloat()
+            drawInstance(
+                planeMesh, midX, 0f, midZ,
+                2.2f, 1f, LaneLayout.LANE_LENGTH.toFloat(),
+                0.55f, 0.42f, 0.30f,
+                rotationYDegrees = angleDegrees
+            )
         }
-        val laneLength = WorldLayout.LANE_SPAWN_Z - WorldLayout.LANE_BASE_Z
-        drawInstance(
-            planeMesh,
-            WorldLayout.LANE_X, 0f, (WorldLayout.LANE_SPAWN_Z + WorldLayout.LANE_BASE_Z) / 2f,
-            2.2f, 1f, laneLength,
-            0.55f, 0.42f, 0.30f
-        )
+    }
+
+    private fun drawSpots() {
+        val (laneCount, slotsPerLane) = session.boardDimensions()
+        for ((pos, _) in WorldLayout.allSpots(laneCount, slotsPerLane)) {
+            val center = WorldLayout.towerWorld(pos)
+            drawInstance(planeMesh, center[0], 0.01f, center[2], 1.2f, 1f, 1.2f, 0.29f, 0.36f, 0.24f)
+        }
     }
 
     private fun drawBase() {
-        val x = WorldLayout.LANE_X
-        val z = WorldLayout.LANE_BASE_Z - 1.2f
+        val base = WorldLayout.baseWorld()
         var y = 0f
         for ((segment, mesh) in castleMeshes.withIndex()) {
-            drawTexturedInstance(mesh, x, y, z, CASTLE_SCALE, CASTLE_SCALE, CASTLE_SCALE, 1f, 1f, 1f)
+            drawTexturedInstance(mesh, base[0], y, base[2], CASTLE_SCALE, CASTLE_SCALE, CASTLE_SCALE, 1f, 1f, 1f)
             y += CASTLE_SEGMENT_HEIGHTS[segment] * CASTLE_SCALE
         }
     }
 
     private fun drawTowers() {
         for (tower in session.snapshotTowers()) {
-            val center = WorldLayout.cellCenter(tower.position)
+            val center = WorldLayout.towerWorld(tower.position)
             val visual = TowerVisuals.forTier(tower.tier)
             val color = towerColor(tower.tier)
             val scale = 0.85f + tower.tier.ordinal * 0.03f
@@ -239,7 +254,7 @@ class GameRenderer(
 
     private fun drawEnemies(enemies: List<Enemy>) {
         for (enemy in enemies) {
-            val pos = enemyWorldPos(enemy)
+            val pos = WorldLayout.enemyWorld(enemy)
             val healthFrac = (enemy.health / enemy.maxHealth).toFloat().coerceIn(0f, 1f)
             drawTexturedInstance(enemyMesh, pos[0], pos[1], pos[2], 0.9f, 0.9f, 0.9f, 0.85f, 0.15f + healthFrac * 0.2f, 0.15f)
         }
@@ -265,12 +280,12 @@ class GameRenderer(
     /** Dropped diamond piles: a small bobbing cube that flickers just before it expires. */
     private fun drawDiamonds(diamonds: List<DiamondDrop>) {
         for (diamond in diamonds) {
-            val z = WorldLayout.laneWorldZ(diamond.progress)
+            val pos = WorldLayout.diamondWorld(diamond)
             val bob = 0.08f * sin(animClock * 3f + diamond.id)
             val warning = diamond.timeRemaining < 2.0
             val flicker = if (warning && (animClock * 8f).toInt() % 2 == 0) 0.35f else 1f
             drawInstance(
-                cubeMesh, WorldLayout.LANE_X, 0.5f + bob, z,
+                cubeMesh, pos[0], 0.5f + bob, pos[2],
                 0.3f, 0.3f, 0.3f,
                 0.25f * flicker, 0.85f * flicker, 0.95f * flicker
             )

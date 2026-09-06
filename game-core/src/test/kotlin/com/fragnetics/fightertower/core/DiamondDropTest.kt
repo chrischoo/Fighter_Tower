@@ -19,7 +19,7 @@ class DiamondDropTest {
 
     @Test
     fun `killing an enemy drops a diamond pile that can be collected`() {
-        val engine = GameEngine(board = GridBoard(columns = 1, rows = 1))
+        val engine = GameEngine(board = GridBoard(laneCount = 1, slotsPerLane = 1))
         killOneEnemy(engine)
 
         val drop = engine.activeDiamonds.firstOrNull()
@@ -33,7 +33,7 @@ class DiamondDropTest {
 
     @Test
     fun `collecting an unknown or already-collected drop returns null`() {
-        val engine = GameEngine(board = GridBoard(columns = 1, rows = 1))
+        val engine = GameEngine(board = GridBoard(laneCount = 1, slotsPerLane = 1))
         assertNull(engine.collectDiamond(999L))
 
         killOneEnemy(engine)
@@ -47,7 +47,7 @@ class DiamondDropTest {
         // A lone TITAN tower keeps clearing waves indefinitely, so later kills keep dropping
         // fresh diamonds during the wait below; track this specific drop by id rather than
         // asserting the whole list is empty.
-        val engine = GameEngine(board = GridBoard(columns = 1, rows = 1))
+        val engine = GameEngine(board = GridBoard(laneCount = 1, slotsPerLane = 1))
         killOneEnemy(engine)
         val firstDropId = engine.activeDiamonds.first().id
 
