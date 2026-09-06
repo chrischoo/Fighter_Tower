@@ -8,7 +8,8 @@ import kotlin.math.sqrt
  */
 class GameEngine(
     val board: GridBoard = GridBoard(columns = 4, rows = 5),
-    val player: PlayerProgress = PlayerProgress()
+    val player: PlayerProgress = PlayerProgress(),
+    val permanentProgress: PermanentProgress = PermanentProgress()
 ) {
     val baseMaxHealth: Double = 100.0
     var baseHealth: Double = baseMaxHealth
@@ -29,6 +30,9 @@ class GameEngine(
     private val enemiesById = LinkedHashMap<Long, Enemy>()
     private var nextEnemyId = 1L
 
+    private val diamondsById = LinkedHashMap<Long, DiamondDrop>()
+    private var nextDiamondId = 1L
+
     private val eventsBuffer = mutableListOf<GameEvent>()
 
     init {
@@ -36,17 +40,25 @@ class GameEngine(
     }
 
     val activeEnemies: List<Enemy> get() = enemiesById.values.toList()
+    val activeDiamonds: List<DiamondDrop> get() = diamondsById.values.toList()
 
     fun buyTower(): Tower? {
         if (gameOver) return null
         val cost = TowerTier.BASE_TOWER_COST
         if (!player.spendGold(cost)) return null
-        val tower = board.placeNewTower()
+        val tower = board.placeNewTower(tier = permanentProgress.startingTowerTier)
         if (tower == null) {
             player.addGold(cost)
             return null
         }
         return tower
+    }
+
+    /** Collects a dropped diamond pile by id, returning the amount gained, or null if it's
+     * already been collected or expired. */
+    fun collectDiamond(id: Long): Int? {
+        val drop = diamondsById.remove(id) ?: return null
+        return drop.amount
     }
 
     fun mergeOrMove(from: GridPos, to: GridPos): GridBoard.MoveResult {
@@ -62,6 +74,7 @@ class GameEngine(
         spawnPendingEnemies(deltaSeconds)
         advanceEnemies(deltaSeconds)
         resolveTowerAttacks(deltaSeconds)
+        advanceDiamonds(deltaSeconds)
         checkWaveCompletion(deltaSeconds)
 
         return eventsBuffer.toList()
@@ -125,9 +138,10 @@ class GameEngine(
                 ?.first
                 ?: continue
 
-            target.health = (target.health - tower.tier.damage).coerceAtLeast(0.0)
+            val damage = tower.tier.damage * permanentProgress.bulletDamageMultiplier
+            target.health = (target.health - damage).coerceAtLeast(0.0)
             tower.cooldownRemaining = tower.tier.attackCooldownSeconds
-            eventsBuffer += GameEvent.TowerAttacked(tower.id, tower.position, target.id, tower.tier.damage)
+            eventsBuffer += GameEvent.TowerAttacked(tower.id, tower.position, target.id, damage)
 
             if (target.isDead) {
                 enemiesById.remove(target.id)
@@ -137,7 +151,23 @@ class GameEngine(
                 repeat(levelsGained) {
                     eventsBuffer += GameEvent.LevelUp(player.level)
                 }
+                val diamondAmount = 1 + target.xpReward / 20
+                val drop = DiamondDrop(id = nextDiamondId++, progress = target.progress, amount = diamondAmount)
+                diamondsById[drop.id] = drop
+                eventsBuffer += GameEvent.DiamondDropped(drop.id, drop.amount)
             }
+        }
+    }
+
+    private fun advanceDiamonds(dt: Double) {
+        val expired = mutableListOf<Long>()
+        for (drop in diamondsById.values) {
+            drop.timeRemaining -= dt
+            if (drop.timeRemaining <= 0.0) expired += drop.id
+        }
+        for (id in expired) {
+            diamondsById.remove(id)
+            eventsBuffer += GameEvent.DiamondExpired(id)
         }
     }
 

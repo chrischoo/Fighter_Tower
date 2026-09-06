@@ -7,5 +7,7 @@ sealed class GameEvent {
     data class LevelUp(val newLevel: Int) : GameEvent()
     data class WaveStarted(val waveNumber: Int) : GameEvent()
     data class WaveCleared(val waveNumber: Int) : GameEvent()
+    data class DiamondDropped(val dropId: Long, val amount: Int) : GameEvent()
+    data class DiamondExpired(val dropId: Long) : GameEvent()
     data object GameOver : GameEvent()
 }

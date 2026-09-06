@@ -24,9 +24,11 @@ import com.fragnetics.fightertower.app.game.GameSnapshot
 @Composable
 fun GameHud(
     state: GameSnapshot,
+    diamonds: Int,
     towerCost: Int,
     onBuyTower: () -> Unit,
-    onRestart: () -> Unit,
+    onRetry: () -> Unit,
+    onHome: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier.fillMaxSize()) {
@@ -44,6 +46,7 @@ fun GameHud(
                 Text("Lv ${state.level}", color = Color.White, style = MaterialTheme.typography.titleMedium)
                 Text("Wave ${state.wave}", color = Color.White, style = MaterialTheme.typography.titleMedium)
                 Text("Gold ${state.gold}", color = Color(0xFFFFD54F), style = MaterialTheme.typography.titleMedium)
+                Text("♦ $diamonds", color = Color(0xFF4DD0E1), style = MaterialTheme.typography.titleMedium)
             }
             Spacer(modifier = Modifier.height(4.dp))
             LinearProgressIndicator(
@@ -87,8 +90,12 @@ fun GameHud(
                     Spacer(modifier = Modifier.height(8.dp))
                     Text("Reached wave ${state.wave} at level ${state.level}", color = Color.White)
                     Spacer(modifier = Modifier.height(16.dp))
-                    Button(onClick = onRestart) {
-                        Text("Restart")
+                    Button(onClick = onRetry) {
+                        Text("Retry")
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(onClick = onHome) {
+                        Text("Home")
                     }
                 }
             }

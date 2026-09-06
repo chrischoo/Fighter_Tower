@@ -5,10 +5,12 @@ import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
 import com.fragnetics.fightertower.app.game.GameSession
+import com.fragnetics.fightertower.core.DiamondDrop
 import com.fragnetics.fightertower.core.Enemy
 import com.fragnetics.fightertower.core.GameEvent
 import com.fragnetics.fightertower.core.GridPos
 import com.fragnetics.fightertower.core.TowerTier
+import kotlin.math.sin
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
@@ -63,6 +65,8 @@ class GameRenderer(
     }
     private val bolts = mutableListOf<Bolt>()
 
+    private var animClock = 0f
+
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         GLES20.glClearColor(0.53f, 0.72f, 0.86f, 1f)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
@@ -110,7 +114,9 @@ class GameRenderer(
 
         val events = session.update(dt)
         val enemies = session.snapshotEnemies()
+        val diamonds = session.snapshotDiamonds()
         spawnBoltsForEvents(events, enemies)
+        animClock += dt.toFloat()
 
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
 
@@ -138,6 +144,7 @@ class GameRenderer(
 
         program.use()
         drawBolts(dt.toFloat())
+        drawDiamonds(diamonds)
     }
 
     /** Thread-safe: called from the touch controller on the main thread. */
@@ -252,6 +259,21 @@ class GameRenderer(
             val y = bolt.fromY + (bolt.toY - bolt.fromY) * t
             val z = bolt.fromZ + (bolt.toZ - bolt.fromZ) * t
             drawInstance(cubeMesh, x, y, z, 0.15f, 0.15f, 0.15f, 1f, 0.9f, 0.3f)
+        }
+    }
+
+    /** Dropped diamond piles: a small bobbing cube that flickers just before it expires. */
+    private fun drawDiamonds(diamonds: List<DiamondDrop>) {
+        for (diamond in diamonds) {
+            val z = WorldLayout.laneWorldZ(diamond.progress)
+            val bob = 0.08f * sin(animClock * 3f + diamond.id)
+            val warning = diamond.timeRemaining < 2.0
+            val flicker = if (warning && (animClock * 8f).toInt() % 2 == 0) 0.35f else 1f
+            drawInstance(
+                cubeMesh, WorldLayout.LANE_X, 0.5f + bob, z,
+                0.3f, 0.3f, 0.3f,
+                0.25f * flicker, 0.85f * flicker, 0.95f * flicker
+            )
         }
     }
 
